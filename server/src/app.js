@@ -32,6 +32,7 @@ app.use(express.json());
 const imagesPath = path.join(rootDir, 'seedData/images');
 if (fs.existsSync(imagesPath)) {
   app.use('/images', express.static(imagesPath));
+  app.use('/seedData/images', express.static(imagesPath));
 }
 
 // Health check endpoint

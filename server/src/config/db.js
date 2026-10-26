@@ -16,10 +16,10 @@ export async function connectDB() {
     await mongoose.connect(uri, {
       serverSelectionTimeoutMS: 2000,
     });
-    console.log(`Connected to MongoDB at ${uri}`);
+    console.log('Connected to MongoDB successfully.');
     return uri;
   } catch (err) {
-    console.log(`Could not connect to external MongoDB at ${uri}. Launching embedded MongoDB...`);
+    console.log('Could not connect to external MongoDB. Launching embedded MongoDB...');
     
     try {
       const { MongoMemoryServer } = await import('mongodb-memory-server');
@@ -33,7 +33,7 @@ export async function connectDB() {
       
       const memoryUri = mongoMemoryServer.getUri();
       await mongoose.connect(memoryUri);
-      console.log(`Connected to embedded MongoDB at ${memoryUri}`);
+      console.log('Connected to embedded MongoDB.');
       return memoryUri;
     } catch (memErr) {
       console.error('Failed to start embedded MongoDB:', memErr.message);

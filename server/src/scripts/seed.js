@@ -17,29 +17,70 @@ dotenv.config({ path: path.join(rootDir, '.env') });
 
 export async function runSeed(options = { silent: false }) {
   const seedPath = path.join(rootDir, 'seedData', 'seed.json');
-  let seedData = null;
+  const paintingsPath = path.join(rootDir, 'seedData', 'paintings.json');
 
+  let seedData = null;
+  let paintingsCatalog = null;
+
+  // 1. Try loading full seed.json if present (e.g. local development)
   if (fs.existsSync(seedPath)) {
     try {
       const content = fs.readFileSync(seedPath, 'utf8');
       seedData = JSON.parse(content);
-      if (!options.silent) console.log('Loaded seed data from seedData/seed.json');
+      if (!options.silent) console.log('Loaded development seed data from seedData/seed.json');
     } catch (err) {
       console.error('Error reading seedData/seed.json:', err.message);
     }
-  } else {
-    if (!options.silent) console.warn('Warning: seedData/seed.json not found. Falling back to environment configurations.');
   }
 
-  if (!seedData) {
-    if (!options.silent) console.log('Proceeding with baseline configuration.');
-    return;
+  // 2. Try loading tracked paintings.json (preferred for production)
+  if (fs.existsSync(paintingsPath)) {
+    try {
+      const pContent = fs.readFileSync(paintingsPath, 'utf8');
+      const parsed = JSON.parse(pContent);
+      paintingsCatalog = Array.isArray(parsed) ? parsed : parsed.paintings;
+      if (!options.silent) console.log('Loaded painting catalog from seedData/paintings.json');
+    } catch (err) {
+      console.error('Error reading seedData/paintings.json:', err.message);
+    }
   }
 
-  // 1. Seed Studio Account securely
-  const studioEmail = process.env.STUDIO_EMAIL || seedData.studioAccount?.email || 'studio@artstudio.in';
-  const studioPlainPassword = process.env.STUDIO_PASSWORD || seedData.studioAccount?.password;
-  const studioRole = seedData.studioAccount?.role || 'studio';
+  // If paintings.json was not loaded, fall back to seedData.paintings
+  if (!paintingsCatalog && seedData && Array.isArray(seedData.paintings)) {
+    paintingsCatalog = seedData.paintings;
+  }
+
+  // If paintings catalog is missing or invalid, report a clear error and abort
+  if (!paintingsCatalog || !Array.isArray(paintingsCatalog) || paintingsCatalog.length === 0) {
+    const errorMsg = 'Failed to seed paintings: Tracked catalog seedData/paintings.json is missing or empty.';
+    console.error(errorMsg);
+    throw new Error(errorMsg);
+  }
+
+  // 3. Seed Paintings (Idempotent upsert by id)
+  let paintingCount = 0;
+  for (const p of paintingsCatalog) {
+    await Painting.findOneAndUpdate(
+      { id: p.id },
+      {
+        id: p.id,
+        title: p.title,
+        artist: p.artist,
+        description: p.description,
+        price: p.price,
+        imageUrl: p.imageUrl,
+        status: p.status || 'available'
+      },
+      { upsert: true, new: true }
+    );
+    paintingCount++;
+  }
+  if (!options.silent) console.log(`Seeded ${paintingCount} paintings.`);
+
+  // 4. Seed Studio Account securely (only when password is provided via env or seed.json)
+  const studioEmail = process.env.STUDIO_EMAIL || seedData?.studioAccount?.email || 'studio@artstudio.in';
+  const studioPlainPassword = process.env.STUDIO_PASSWORD || seedData?.studioAccount?.password;
+  const studioRole = seedData?.studioAccount?.role || 'studio';
 
   if (studioEmail && studioPlainPassword) {
     const existingUser = await User.findOne({ email: studioEmail.toLowerCase() });
@@ -61,59 +102,54 @@ export async function runSeed(options = { silent: false }) {
     }
   }
 
-  // 2. Seed Paintings (Idempotent upsert by id)
-  if (Array.isArray(seedData.paintings)) {
-    let paintingCount = 0;
-    for (const p of seedData.paintings) {
-      await Painting.findOneAndUpdate(
-        { id: p.id },
-        {
-          id: p.id,
-          title: p.title,
-          artist: p.artist,
-          description: p.description,
-          price: p.price,
-          imageUrl: p.imageUrl,
-          status: p.status || 'available'
-        },
-        { upsert: true, new: true }
-      );
-      paintingCount++;
-    }
-    if (!options.silent) console.log(`Seeded ${paintingCount} paintings.`);
-  }
+  // 5. Seed Pottery Items (Idempotent upsert by id)
+  const potteryItemsList = (seedData && Array.isArray(seedData.potteryItems))
+    ? seedData.potteryItems
+    : [
+        { id: 'i-01', name: 'Kulhad (clay cup)' },
+        { id: 'i-02', name: 'Surahi (water jug)' },
+        { id: 'i-03', name: 'Matka (water pot)' },
+        { id: 'i-04', name: 'Diya set' },
+        { id: 'i-05', name: 'Gamla (planter)' }
+      ];
 
-  // 3. Seed Pottery Items (Idempotent upsert by id)
-  if (Array.isArray(seedData.potteryItems)) {
-    let potteryCount = 0;
-    for (const item of seedData.potteryItems) {
-      await PotteryItem.findOneAndUpdate(
-        { id: item.id },
-        { id: item.id, name: item.name },
-        { upsert: true, new: true }
-      );
-      potteryCount++;
-    }
-    if (!options.silent) console.log(`Seeded ${potteryCount} pottery items.`);
+  let potteryCount = 0;
+  for (const item of potteryItemsList) {
+    await PotteryItem.findOneAndUpdate(
+      { id: item.id },
+      { id: item.id, name: item.name },
+      { upsert: true, new: true }
+    );
+    potteryCount++;
   }
+  if (!options.silent) console.log(`Seeded ${potteryCount} pottery items.`);
 
-  // 4. Seed Glazes (Idempotent upsert by id)
-  if (Array.isArray(seedData.glazes)) {
-    let glazeCount = 0;
-    for (const glaze of seedData.glazes) {
-      await Glaze.findOneAndUpdate(
-        { id: glaze.id },
-        { id: glaze.id, name: glaze.name },
-        { upsert: true, new: true }
-      );
-      glazeCount++;
-    }
-    if (!options.silent) console.log(`Seeded ${glazeCount} glazes.`);
+  // 6. Seed Glazes (Idempotent upsert by id)
+  const glazesList = (seedData && Array.isArray(seedData.glazes))
+    ? seedData.glazes
+    : [
+        { id: 'g-01', name: 'Kumkum Red' },
+        { id: 'g-02', name: 'Haldi Yellow' },
+        { id: 'g-03', name: 'Mehendi Green' },
+        { id: 'g-04', name: 'Indigo Blue' },
+        { id: 'g-05', name: 'Sandalwood Beige' },
+        { id: 'g-06', name: 'Charcoal Black' }
+      ];
+
+  let glazeCount = 0;
+  for (const glaze of glazesList) {
+    await Glaze.findOneAndUpdate(
+      { id: glaze.id },
+      { id: glaze.id, name: glaze.name },
+      { upsert: true, new: true }
+    );
+    glazeCount++;
   }
+  if (!options.silent) console.log(`Seeded ${glazeCount} glazes.`);
 
-  // 5. Seed Mural Configuration
-  const muralRate = seedData.mural?.ratePerSqFt || 150;
-  const currency = seedData.currency || 'INR';
+  // 7. Seed Mural Configuration
+  const muralRate = seedData?.mural?.ratePerSqFt || 150;
+  const currency = seedData?.currency || 'INR';
   await StudioConfig.findOneAndUpdate(
     { key: 'default' },
     {
@@ -124,6 +160,8 @@ export async function runSeed(options = { silent: false }) {
     { upsert: true, new: true }
   );
   if (!options.silent) console.log(`Seeded Studio Config: Mural Rate = ${muralRate} ${currency}/sq ft.`);
+
+  return { paintingCount, potteryCount, glazeCount };
 }
 
 // Direct execution from CLI

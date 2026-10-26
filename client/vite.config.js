@@ -13,6 +13,10 @@ export default defineConfig({
       '/images': {
         target: 'http://localhost:5000',
         changeOrigin: true
+      },
+      '/seedData/images': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
       }
     }
   }
